@@ -1,83 +1,105 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Upload,
-  Briefcase,
-  Plus,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
-  BookmarkPlus,
-  BarChart2,
-  ArrowRight,
-  Activity,
+  Upload, Briefcase, Plus, TrendingUp, BookmarkPlus,
+  CheckCircle2, ArrowRight, Activity, BarChart2, Clock,
 } from "lucide-react";
-import {
-  mockDashboardStats,
-  mockActivity,
-  mockApplications,
-  mockAnalysisHistory,
-  formatDate,
-  timeAgo,
-  STATUS_COLORS,
-  STATUS_LABELS,
-} from "@/lib/mock-data";
+import { supabase } from "@/lib/supabase";
+import { mockActivity, STATUS_COLORS, STATUS_LABELS, formatDate, timeAgo } from "@/lib/mock-data";
+import { JobApplication, AnalysisResult, ApplicationStatus } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { ApplicationStatus } from "@/lib/types";
+import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 
-const statCards = [
-  {
-    label: "Total Applications",
-    value: mockDashboardStats.totalApplications,
-    icon: Briefcase,
-    color: "text-blue-600",
-    bg: "bg-blue-50",
-    href: "/applications",
-  },
-  {
-    label: "Interviews",
-    value: mockDashboardStats.interviews,
-    icon: TrendingUp,
-    color: "text-amber-600",
-    bg: "bg-amber-50",
-    href: "/applications?status=interview",
-  },
-  {
-    label: "Saved Jobs",
-    value: mockDashboardStats.savedJobs,
-    icon: BookmarkPlus,
-    color: "text-slate-600",
-    bg: "bg-slate-100",
-    href: "/applications?status=saved",
-  },
-  {
-    label: "Analyses Done",
-    value: mockDashboardStats.completedAnalyses,
-    icon: CheckCircle2,
-    color: "text-emerald-600",
-    bg: "bg-emerald-50",
-    href: "/history",
-  },
-];
-
-const activityIcons: Record<string, React.ElementType> = {
-  application: Briefcase,
-  analysis: BarChart2,
-  resume: Upload,
-  status_change: Activity,
-};
+interface Stats {
+  total: number;
+  interviews: number;
+  saved: number;
+  analyses: number;
+}
 
 export function OverviewPage() {
+  const [applications, setApplications] = useState<JobApplication[]>([]);
+  const [analyses, setAnalyses] = useState<AnalysisResult[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      const [appsRes, analysesRes] = await Promise.all([
+        supabase.from("job_applications").select("*").order("application_date", { ascending: false }),
+        supabase.from("analyses").select("*").order("created_at", { ascending: false }).limit(3),
+      ]);
+
+      if (appsRes.data) {
+        setApplications(
+          appsRes.data.map((r) => ({
+            id: r.id,
+            jobTitle: r.job_title,
+            company: r.company,
+            location: r.location ?? "",
+            applicationDate: r.application_date,
+            status: r.status as ApplicationStatus,
+            jobUrl: r.job_url ?? "",
+            notes: r.notes ?? "",
+            salary: r.salary ?? "",
+          }))
+        );
+      }
+      if (analysesRes.data) {
+        setAnalyses(
+          analysesRes.data.map((r) => ({
+            id: r.id,
+            jobTitle: r.job_title,
+            company: r.company,
+            matchScore: r.match_score,
+            matchedSkills: r.matched_skills ?? [],
+            missingSkills: r.missing_skills ?? [],
+            experienceEvidence: r.experience_evidence ?? [],
+            recommendations: r.recommendations ?? [],
+            resumeUsed: r.resume_used ?? "",
+            date: r.created_at.split("T")[0],
+          }))
+        );
+      }
+      setLoading(false);
+    }
+    fetchData();
+  }, []);
+
+  const stats: Stats = {
+    total: applications.length,
+    interviews: applications.filter((a) => a.status === "interview").length,
+    saved: applications.filter((a) => a.status === "saved").length,
+    analyses: analyses.length,
+  };
+
+  const statCards = [
+    { label: "Total Applications", value: stats.total, icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", href: "/applications" },
+    { label: "Interviews", value: stats.interviews, icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50", href: "/applications" },
+    { label: "Saved Jobs", value: stats.saved, icon: BookmarkPlus, color: "text-slate-600", bg: "bg-slate-100", href: "/applications" },
+    { label: "Analyses Done", value: stats.analyses, icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50", href: "/history" },
+  ];
+
   const statusCounts = Object.entries(
-    mockApplications.reduce(
-      (acc, app) => {
-        acc[app.status] = (acc[app.status] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    )
+    applications.reduce((acc, app) => {
+      acc[app.status] = (acc[app.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
   );
+
+  const barColors: Record<string, string> = {
+    saved: "bg-slate-400", applied: "bg-blue-500",
+    interview: "bg-amber-500", rejected: "bg-red-400", offer: "bg-emerald-500",
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <LoadingSpinner size="lg" label="Loading your workspace…" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -88,30 +110,18 @@ export function OverviewPage() {
             Welcome back, Alex 👋
           </h1>
           <p className="text-slate-500 mt-1 text-sm md:text-base">
-            Your career workspace — track applications, analyze job matches, and improve your resume.
+            Your career workspace — backed by Supabase.
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Link
-            href="/resume"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 transition-colors"
-          >
-            <Upload className="w-4 h-4" />
-            Upload Resume
+          <Link href="/resume" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 transition-colors">
+            <Upload className="w-4 h-4" />Upload Resume
           </Link>
-          <Link
-            href="/job-match"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
-          >
-            <Briefcase className="w-4 h-4" />
-            Analyze Job
+          <Link href="/job-match" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors">
+            <Briefcase className="w-4 h-4" />Analyze Job
           </Link>
-          <Link
-            href="/applications"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-lime-500 text-white text-sm font-medium hover:bg-lime-600 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Application
+          <Link href="/applications" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-lime-500 text-white text-sm font-medium hover:bg-lime-600 transition-colors">
+            <Plus className="w-4 h-4" />Add Application
           </Link>
         </div>
       </div>
@@ -119,11 +129,7 @@ export function OverviewPage() {
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => (
-          <Link
-            key={card.label}
-            href={card.href}
-            className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition-all group"
-          >
+          <Link key={card.label} href={card.href} className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition-all group">
             <div className="flex items-center justify-between mb-3">
               <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center`}>
                 <card.icon className={`w-5 h-5 ${card.color}`} />
@@ -137,54 +143,39 @@ export function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Application Status Overview */}
+        {/* Application Status */}
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-slate-800">Application Status</h2>
-            <Link
-              href="/applications"
-              className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
-            >
+            <Link href="/applications" className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
               View all <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="space-y-3">
-            {statusCounts.map(([status, count]) => {
-              const pct = Math.round((count / mockApplications.length) * 100);
-              const barColors: Record<string, string> = {
-                saved: "bg-slate-400",
-                applied: "bg-blue-500",
-                interview: "bg-amber-500",
-                rejected: "bg-red-400",
-                offer: "bg-emerald-500",
-              };
-              return (
-                <div key={status} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[status]}`}
-                      >
+          {statusCounts.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">No applications yet</p>
+          ) : (
+            <div className="space-y-3">
+              {statusCounts.map(([status, count]) => {
+                const pct = Math.round((count / applications.length) * 100);
+                return (
+                  <div key={status} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[status]}`}>
                         {STATUS_LABELS[status]}
                       </span>
+                      <span className="text-slate-500 text-xs font-medium">{count} ({pct}%)</span>
                     </div>
-                    <span className="text-slate-500 text-xs font-medium">
-                      {count} ({pct}%)
-                    </span>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5">
+                      <div className={`h-1.5 rounded-full ${barColors[status] ?? "bg-slate-400"} transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5">
-                    <div
-                      className={`h-1.5 rounded-full ${barColors[status]} transition-all`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* Recent Activity */}
+        {/* Recent Activity — still uses mock for now */}
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-slate-800">Recent Activity</h2>
@@ -192,21 +183,20 @@ export function OverviewPage() {
           </div>
           <div className="space-y-4">
             {mockActivity.slice(0, 5).map((item) => {
-              const Icon = activityIcons[item.type] || Activity;
+              const icons: Record<string, React.ElementType> = {
+                application: Briefcase, analysis: BarChart2, resume: Upload, status_change: Activity,
+              };
+              const Icon = icons[item.type] || Activity;
               return (
                 <div key={item.id} className="flex gap-3">
                   <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
                     <Icon className="w-4 h-4 text-slate-500" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">
-                      {item.title}
-                    </p>
+                    <p className="text-sm font-medium text-slate-800 truncate">{item.title}</p>
                     <p className="text-xs text-slate-500">{item.description}</p>
                   </div>
-                  <span className="text-xs text-slate-400 shrink-0 pt-0.5">
-                    {timeAgo(item.date)}
-                  </span>
+                  <span className="text-xs text-slate-400 shrink-0 pt-0.5">{timeAgo(item.date)}</span>
                 </div>
               );
             })}
@@ -214,118 +204,79 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* Recent Analyses */}
+      {/* Recent Analyses from Supabase */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-slate-800">Recent Analyses</h2>
-          <Link
-            href="/history"
-            className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
-          >
+          <Link href="/history" className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
             View history <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
-        <div className="space-y-3">
-          {mockAnalysisHistory.slice(0, 3).map((analysis) => (
-            <div
-              key={analysis.id}
-              className="flex items-center gap-4 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800">
-                  {analysis.jobTitle} @ {analysis.company}
-                </p>
-                <p className="text-xs text-slate-500">{formatDate(analysis.date)}</p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="w-20 bg-slate-200 rounded-full h-1.5">
-                  <div
-                    className={`h-1.5 rounded-full ${
-                      analysis.matchScore >= 80
-                        ? "bg-emerald-500"
-                        : analysis.matchScore >= 60
-                        ? "bg-amber-500"
-                        : "bg-red-400"
-                    }`}
-                    style={{ width: `${analysis.matchScore}%` }}
-                  />
+        {analyses.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No analyses yet — try the Job Match page</p>
+        ) : (
+          <div className="space-y-3">
+            {analyses.map((analysis) => (
+              <div key={analysis.id} className="flex items-center gap-4 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800">{analysis.jobTitle} @ {analysis.company}</p>
+                  <p className="text-xs text-slate-500">{formatDate(analysis.date)}</p>
                 </div>
-                <span
-                  className={`text-sm font-bold ${
-                    analysis.matchScore >= 80
-                      ? "text-emerald-600"
-                      : analysis.matchScore >= 60
-                      ? "text-amber-600"
-                      : "text-red-500"
-                  }`}
-                >
-                  {analysis.matchScore}%
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="w-20 bg-slate-200 rounded-full h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full ${analysis.matchScore >= 80 ? "bg-emerald-500" : analysis.matchScore >= 60 ? "bg-amber-500" : "bg-red-400"}`}
+                      style={{ width: `${analysis.matchScore}%` }}
+                    />
+                  </div>
+                  <span className={`text-sm font-bold ${analysis.matchScore >= 80 ? "text-emerald-600" : analysis.matchScore >= 60 ? "text-amber-600" : "text-red-500"}`}>
+                    {analysis.matchScore}%
+                  </span>
+                </div>
+                <Link href="/history" className="text-xs text-emerald-600 hover:underline shrink-0">View</Link>
               </div>
-              <Link
-                href="/history"
-                className="text-xs text-emerald-600 hover:underline shrink-0"
-              >
-                View
-              </Link>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Recent Applications */}
+      {/* Recent Applications from Supabase */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-slate-800">Recent Applications</h2>
-          <Link
-            href="/applications"
-            className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
-          >
+          <Link href="/applications" className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
             View all <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-4">
-                  Role
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-4 hidden sm:table-cell">
-                  Company
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-4 hidden md:table-cell">
-                  Date
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 pb-2">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {mockApplications.slice(0, 5).map((app) => (
-                <tr key={app.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-3 pr-4 font-medium text-slate-800">
-                    {app.jobTitle}
-                    <span className="sm:hidden text-slate-500 font-normal">
-                      {" "}
-                      @ {app.company}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4 text-slate-600 hidden sm:table-cell">
-                    {app.company}
-                  </td>
-                  <td className="py-3 pr-4 text-slate-500 hidden md:table-cell">
-                    {formatDate(app.applicationDate)}
-                  </td>
-                  <td className="py-3">
-                    <StatusBadge status={app.status as ApplicationStatus} />
-                  </td>
+        {applications.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No applications yet</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-4">Role</th>
+                  <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-4 hidden sm:table-cell">Company</th>
+                  <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-4 hidden md:table-cell">Date</th>
+                  <th className="text-left text-xs font-medium text-slate-500 pb-2">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {applications.slice(0, 5).map((app) => (
+                  <tr key={app.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-3 pr-4 font-medium text-slate-800">
+                      {app.jobTitle}
+                      <span className="sm:hidden text-slate-500 font-normal"> @ {app.company}</span>
+                    </td>
+                    <td className="py-3 pr-4 text-slate-600 hidden sm:table-cell">{app.company}</td>
+                    <td className="py-3 pr-4 text-slate-500 hidden md:table-cell">{formatDate(app.applicationDate)}</td>
+                    <td className="py-3"><StatusBadge status={app.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
