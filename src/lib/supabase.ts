@@ -1,12 +1,15 @@
-// CareerPilot AI — Supabase Client Utilities
-// Uses @supabase/supabase-js directly for typed client (browser).
-// Uses @supabase/ssr for server-side session handling.
+// CareerPilot AI — Supabase Client
+//
+// IMPORTANT: We use @supabase/ssr's createBrowserClient (not @supabase/supabase-js's
+// createClient) so the session is stored in COOKIES instead of localStorage.
+// This allows proxy.ts (Next.js middleware) to read the session server-side
+// and protect routes correctly. Without this, sign-in succeeds but the proxy
+// sees no session and immediately redirects back to /login.
 
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "./database.types";
+import { createBrowserClient } from "@supabase/ssr";
 
-// Fallback to placeholder during SSR/prerender so the build doesn't crash.
-// The real values are inlined by Next.js at build time from NEXT_PUBLIC_ env vars.
+// Fallback during SSR/prerender so the build doesn't crash.
+// Real values are inlined by Next.js from NEXT_PUBLIC_ env vars at build time.
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co";
 const supabaseKey =
@@ -15,34 +18,29 @@ const supabaseKey =
 if (typeof window !== "undefined" && supabaseUrl === "https://placeholder.supabase.co") {
   console.error(
     "[CareerPilot] Missing NEXT_PUBLIC_SUPABASE_URL. " +
-    "Add it to Vercel Environment Variables (Config type, not Secret)."
+    "Add it to Vercel Environment Variables as Config type (not Secret)."
   );
 }
 
 /**
- * Typed browser Supabase client.
- * Singleton — safe to import in "use client" components.
- * Uses @supabase/supabase-js createClient with the Database generic
- * so all .from() calls are fully typed.
+ * Browser Supabase client — singleton.
+ * Uses @supabase/ssr so sessions are stored in cookies,
+ * readable by the server-side proxy for route protection.
  */
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-});
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const supabase = createBrowserClient<any>(supabaseUrl, supabaseKey);
 
 /**
  * Server Supabase client factory.
- * Used in Server Components, Route Handlers, and the proxy.
- * Reads and writes auth session from request cookies.
+ * Used in Server Components and Route Handlers.
+ * Reads and writes the auth session via request cookies.
  */
 export async function createServerSupabaseClient() {
   const { createServerClient } = await import("@supabase/ssr");
   const { cookies } = await import("next/headers");
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(supabaseUrl, supabaseKey, {
+  return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -53,7 +51,7 @@ export async function createServerSupabaseClient() {
             cookieStore.set(name, value, options)
           );
         } catch {
-          // Called from Server Component — read-only; proxy handles refresh
+          // Server Component — read-only; proxy handles cookie refresh
         }
       },
     },
