@@ -5,13 +5,17 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+// Fallback to placeholder during SSR/prerender so the build doesn't crash.
+// The real values are inlined by Next.js at build time from NEXT_PUBLIC_ env vars.
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co";
+const supabaseKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "placeholder-key";
 
-if (typeof window !== "undefined" && (!supabaseUrl || !supabaseKey)) {
+if (typeof window !== "undefined" && supabaseUrl === "https://placeholder.supabase.co") {
   console.error(
-    "[CareerPilot] Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL " +
-    "and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env.local"
+    "[CareerPilot] Missing NEXT_PUBLIC_SUPABASE_URL. " +
+    "Add it to Vercel Environment Variables (Config type, not Secret)."
   );
 }
 
