@@ -9,7 +9,14 @@ import {
 import { JobApplication, ApplicationStatus } from "@/lib/types";
 import { STATUS_LABELS, STATUS_COLORS, formatDate } from "@/lib/mock-data";
 import { supabase } from "@/lib/supabase";
-import type { AppRow } from "@/lib/db-types";
+import type { JobApplicationRow } from "@/lib/database.types";
+import {
+  fetchApplications as fetchApplicationsQuery,
+  insertApplication,
+  updateApplication,
+  deleteApplication,
+  updateApplicationStatus,
+} from "@/lib/queries";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -19,17 +26,7 @@ import { cn } from "@/lib/utils";
 const STATUSES: ApplicationStatus[] = ["saved", "applied", "interview", "rejected", "offer"];
 
 // Map DB row → app type
-function rowToApp(row: {
-  id: string;
-  job_title: string;
-  company: string;
-  location: string | null;
-  application_date: string;
-  status: ApplicationStatus;
-  job_url: string | null;
-  notes: string | null;
-  salary: string | null;
-}): JobApplication {
+function rowToApp(row: JobApplicationRow): JobApplication {
   return {
     id: row.id,
     jobTitle: row.job_title,
@@ -40,20 +37,6 @@ function rowToApp(row: {
     jobUrl: row.job_url ?? "",
     notes: row.notes ?? "",
     salary: row.salary ?? "",
-  };
-}
-
-// Map app type → DB insert/update shape
-function appToRow(app: Omit<JobApplication, "id">) {
-  return {
-    job_title: app.jobTitle,
-    company: app.company,
-    location: app.location || null,
-    application_date: app.applicationDate,
-    status: app.status,
-    job_url: app.jobUrl || null,
-    notes: app.notes || null,
-    salary: app.salary || null,
   };
 }
 
@@ -301,6 +284,7 @@ function KanbanColumn({ status, apps, onEdit, onDelete, onStatusChange }: {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function ApplicationsPage() {
   const [applications, setApplications] = useState<JobApplication[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "kanban">("list");
@@ -314,36 +298,44 @@ export function ApplicationsPage() {
   const [deleting, setDeleting] = useState(false);
 
   // ── Fetch from Supabase ──────────────────────────────────────────────────
-  const fetchApplications = async () => {
+  const loadApplications = async () => {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("job_applications")
-      .select("*")
-      .order("application_date", { ascending: false });
+    // Get current user first
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) setUserId(user.id);
 
-    if (error) {
+    const { data, error: fetchError } = await fetchApplicationsQuery();
+
+    if (fetchError) {
       setError("Could not load applications. Check your Supabase connection.");
-      console.error(error);
+      console.error(fetchError);
     } else {
-      setApplications((data ?? []).map(rowToApp));
+      setApplications(data.map(rowToApp));
     }
     setLoading(false);
   };
 
-  useEffect(() => { fetchApplications(); }, []);
+  useEffect(() => { loadApplications(); }, []);
 
   // ── CRUD handlers ────────────────────────────────────────────────────────
   const handleAdd = async (app: JobApplication) => {
+    if (!userId) { alert("Not authenticated."); return; }
     setSaving(true);
-    const { data, error } = await supabase
-      .from("job_applications")
-      .insert(appToRow(app))
-      .select()
-      .single();
+    const { data, error: insertError } = await insertApplication(userId, {
+      job_title: app.jobTitle,
+      company: app.company,
+      location: app.location || null,
+      application_date: app.applicationDate,
+      status: app.status,
+      job_url: app.jobUrl || null,
+      notes: app.notes || null,
+      salary: app.salary || null,
+      work_mode: null,
+    });
 
-    if (error) {
-      console.error(error);
+    if (insertError) {
+      console.error(insertError);
       alert("Failed to save application. Please try again.");
     } else if (data) {
       setApplications((prev) => [rowToApp(data), ...prev]);
@@ -354,15 +346,19 @@ export function ApplicationsPage() {
 
   const handleEdit = async (app: JobApplication) => {
     setSaving(true);
-    const { data, error } = await supabase
-      .from("job_applications")
-      .update(appToRow(app))
-      .eq("id", app.id)
-      .select()
-      .single();
+    const { data, error: updateError } = await updateApplication(app.id, {
+      job_title: app.jobTitle,
+      company: app.company,
+      location: app.location || null,
+      application_date: app.applicationDate,
+      status: app.status,
+      job_url: app.jobUrl || null,
+      notes: app.notes || null,
+      salary: app.salary || null,
+    });
 
-    if (error) {
-      console.error(error);
+    if (updateError) {
+      console.error(updateError);
       alert("Failed to update application. Please try again.");
     } else if (data) {
       setApplications((prev) => prev.map((a) => (a.id === app.id ? rowToApp(data) : a)));
@@ -375,13 +371,10 @@ export function ApplicationsPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    const { error } = await supabase
-      .from("job_applications")
-      .delete()
-      .eq("id", deleteTarget.id);
+    const { error: deleteError } = await deleteApplication(deleteTarget.id);
 
-    if (error) {
-      console.error(error);
+    if (deleteError) {
+      console.error(deleteError);
       alert("Failed to delete application. Please try again.");
     } else {
       setApplications((prev) => prev.filter((a) => a.id !== deleteTarget.id));
@@ -393,14 +386,11 @@ export function ApplicationsPage() {
   const handleStatusChange = async (id: string, status: ApplicationStatus) => {
     // Optimistic update
     setApplications((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
-    const { error } = await supabase
-      .from("job_applications")
-      .update({ status })
-      .eq("id", id);
+    const { error: statusError } = await updateApplicationStatus(id, status);
 
-    if (error) {
-      console.error(error);
-      fetchApplications(); // revert on error
+    if (statusError) {
+      console.error(statusError);
+      loadApplications(); // revert on error
     }
   };
 
@@ -441,7 +431,7 @@ export function ApplicationsPage() {
         <div className="flex gap-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           <WifiOff className="w-4 h-4 shrink-0 mt-0.5" />
           <p>{error}</p>
-          <button onClick={fetchApplications} className="ml-auto text-red-600 underline text-xs whitespace-nowrap">Retry</button>
+          <button onClick={loadApplications} className="ml-auto text-red-600 underline text-xs whitespace-nowrap">Retry</button>
         </div>
       )}
 

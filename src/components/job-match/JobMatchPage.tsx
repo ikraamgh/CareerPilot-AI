@@ -20,6 +20,8 @@ import { DemoBanner } from "@/components/shared/DemoBanner";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { mockAnalysisHistory } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import { insertAnalysis } from "@/lib/queries";
 
 interface FormState {
   resume: string;
@@ -90,11 +92,35 @@ export function JobMatchPage() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!validate()) return;
     setPageState("loading");
+
+    // Save a pending analysis record — AI integration is Phase 3
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await insertAnalysis(user.id, {
+          job_title: form.jobTitle,
+          company: form.company || null,
+          job_description: form.description,
+          analysis_status: "pending",
+          resume_id: null,
+          job_application_id: null,
+          match_score: null,
+          matched_skills: [],
+          missing_skills: [],
+          experience_evidence: [],
+          recommendations: [],
+          error_message: null,
+        });
+      }
+    } catch {
+      // Non-blocking — demo result still shows
+    }
+
     setTimeout(() => {
-      // Use a randomized result from the mock data
+      // Show demo result — clearly labelled as sample data
       const result = {
         ...mockAnalysisHistory[0],
         jobTitle: form.jobTitle,

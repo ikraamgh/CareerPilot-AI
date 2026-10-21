@@ -6,9 +6,9 @@ import {
   Upload, Briefcase, Plus, TrendingUp, BookmarkPlus,
   CheckCircle2, ArrowRight, Activity, BarChart2, Clock,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import { mockActivity, STATUS_COLORS, STATUS_LABELS, formatDate, timeAgo } from "@/lib/mock-data";
 import { JobApplication, AnalysisResult, ApplicationStatus } from "@/lib/types";
+import { fetchApplications, fetchAnalyses } from "@/lib/queries";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 
@@ -27,8 +27,8 @@ export function OverviewPage() {
   useEffect(() => {
     async function fetchData() {
       const [appsRes, analysesRes] = await Promise.all([
-        supabase.from("job_applications").select("*").order("application_date", { ascending: false }),
-        supabase.from("analyses").select("*").order("created_at", { ascending: false }).limit(3),
+        fetchApplications(),
+        fetchAnalyses(),
       ]);
 
       if (appsRes.data) {
@@ -48,16 +48,16 @@ export function OverviewPage() {
       }
       if (analysesRes.data) {
         setAnalyses(
-          analysesRes.data.map((r) => ({
+          analysesRes.data.slice(0, 3).map((r) => ({
             id: r.id,
             jobTitle: r.job_title,
-            company: r.company,
-            matchScore: r.match_score,
+            company: r.company ?? "",
+            matchScore: r.match_score ?? 0,
             matchedSkills: r.matched_skills ?? [],
             missingSkills: r.missing_skills ?? [],
             experienceEvidence: r.experience_evidence ?? [],
-            recommendations: r.recommendations ?? [],
-            resumeUsed: r.resume_used ?? "",
+            recommendations: Array.isArray(r.recommendations) ? r.recommendations as string[] : [],
+            resumeUsed: "",
             date: r.created_at.split("T")[0],
           }))
         );

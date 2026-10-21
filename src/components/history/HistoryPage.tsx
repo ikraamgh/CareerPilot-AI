@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Search, Eye, ChevronDown, X, CheckCircle2, XCircle, Lightbulb, FileText, WifiOff } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import { AnalysisResult } from "@/lib/types";
 import { formatDate } from "@/lib/mock-data";
+import type { AnalysisRow } from "@/lib/database.types";
+import { fetchAnalyses } from "@/lib/queries";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { DemoBanner } from "@/components/shared/DemoBanner";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -12,28 +13,19 @@ import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { cn } from "@/lib/utils";
 
 // Map DB row → app type
-function rowToAnalysis(row: {
-  id: string;
-  job_title: string;
-  company: string;
-  match_score: number;
-  matched_skills: string[];
-  missing_skills: string[];
-  experience_evidence: string[];
-  recommendations: string[];
-  resume_used: string | null;
-  created_at: string;
-}): AnalysisResult {
+function rowToAnalysis(row: AnalysisRow): AnalysisResult {
   return {
     id: row.id,
     jobTitle: row.job_title,
-    company: row.company,
-    matchScore: row.match_score,
+    company: row.company ?? "",
+    matchScore: row.match_score ?? 0,
     matchedSkills: row.matched_skills ?? [],
     missingSkills: row.missing_skills ?? [],
     experienceEvidence: row.experience_evidence ?? [],
-    recommendations: row.recommendations ?? [],
-    resumeUsed: row.resume_used ?? "",
+    recommendations: Array.isArray(row.recommendations)
+      ? (row.recommendations as string[])
+      : [],
+    resumeUsed: "",
     date: row.created_at.split("T")[0],
   };
 }
@@ -130,24 +122,21 @@ export function HistoryPage() {
   const [scoreFilter, setScoreFilter] = useState<"all" | "high" | "medium" | "low">("all");
   const [selected, setSelected] = useState<AnalysisResult | null>(null);
 
-  const fetchAnalyses = async () => {
+  const loadAnalyses = async () => {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("analyses")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error: fetchError } = await fetchAnalyses();
 
-    if (error) {
+    if (fetchError) {
       setError("Could not load analysis history. Check your Supabase connection.");
-      console.error(error);
+      console.error(fetchError);
     } else {
-      setAnalyses((data ?? []).map(rowToAnalysis));
+      setAnalyses(data.map(rowToAnalysis));
     }
     setLoading(false);
   };
 
-  useEffect(() => { fetchAnalyses(); }, []);
+  useEffect(() => { loadAnalyses(); }, []);
 
   const filtered = useMemo(() => {
     let items = analyses;
@@ -178,7 +167,7 @@ export function HistoryPage() {
         <div className="flex gap-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           <WifiOff className="w-4 h-4 shrink-0 mt-0.5" />
           <p>{error}</p>
-          <button onClick={fetchAnalyses} className="ml-auto text-red-600 underline text-xs whitespace-nowrap">Retry</button>
+          <button onClick={loadAnalyses} className="ml-auto text-red-600 underline text-xs whitespace-nowrap">Retry</button>
         </div>
       )}
 
